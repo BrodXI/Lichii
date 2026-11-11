@@ -229,6 +229,7 @@ jobs:
           -DENABLE_WERROR=ON
           -DBUILD_TESTING=ON
           -DYUZU_TESTS=ON
+          -DDYNARMIC_TESTS=ON
           -DENABLE_QT=ON
           -DENABLE_QT_TRANSLATION=ON
           -DYUZU_CMD=ON
@@ -264,6 +265,24 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --no-tests=error --parallel "$NUMBER_OF_PROCESSORS"
+
+      # The test build is uploaded only after the full Windows test gate passes.
+      # It includes the app and Qt dependencies, not just a bare .exe.
+      - name: Bundle Qt for Ocarina Windows test build
+        if: github.event_name == 'pull_request' && github.head_ref == 'perf/inline-cntpct-windows-test'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/bin/lichii.exe")) { throw "Missing lichii.exe" }
+          windeployqt --release --no-translations build/bin/lichii.exe
+
+      - name: Upload Ocarina Windows test build
+        if: github.event_name == 'pull_request' && github.head_ref == 'perf/inline-cntpct-windows-test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lichii-oot-switch2-windows-test
+          path: build/bin/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Save dependencies and compiler objects
         if: always()
