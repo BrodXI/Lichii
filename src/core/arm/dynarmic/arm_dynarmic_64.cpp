@@ -9,6 +9,7 @@
 #if defined(_M_X64) || defined(__x86_64__)
 #include <immintrin.h>
 #endif
+#include "common/cpu_features.h"
 #include "common/settings.h"
 #include "core/arm/dynarmic/arm_dynarmic.h"
 #include "core/arm/dynarmic/arm_dynarmic_64.h"
@@ -243,6 +244,16 @@ u64 DynarmicCallbacks64::GetTicksRemaining() {
     return std::max<s64>(m_parent.m_system.CoreTiming().downcount, 0);
 }
 
+namespace {
+bool PauseCntpctSpins() {
+    static const bool pause_spins = [] {
+        const char* value = std::getenv("EDEN_NX2_CNTPCT_PAUSE");
+        return value == nullptr || value[0] != '0';
+    }();
+    return pause_spins;
+}
+} // namespace
+
 u64 DynarmicCallbacks64::GetCNTPCT() {
     const u64 ticks = m_parent.m_system.CoreTiming().GetClockTicks();
     // Guest code that waits by polling the counter (title 1's main thread reads it ~17 million
@@ -250,11 +261,7 @@ u64 DynarmicCallbacks64::GetCNTPCT() {
     // GPU thread is often on the other half of that SMT core. Two reads within ~1.7 us of each
     // other are such a loop: pause, which hands the core's resources to the sibling thread for a
     // moment. The guest sees the same counter. EDEN_NX2_CNTPCT_PAUSE=0 turns it off.
-    static const bool pause_spins = [] {
-        const char* value = std::getenv("EDEN_NX2_CNTPCT_PAUSE");
-        return value == nullptr || value[0] != '0';
-    }();
-    if (pause_spins && ticks - m_last_cntpct < m_spin_ticks) {
+    if (PauseCntpctSpins() && ticks - m_last_cntpct < m_spin_ticks) {
 #if defined(_M_X64) || defined(__x86_64__)
         _mm_pause();
         _mm_pause();
@@ -353,6 +360,26 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
     // Timing
     config.wall_clock_cntpct = m_uses_wall_clock;
     config.enable_cycle_counting = !m_uses_wall_clock;
+#if defined(ARCHITECTURE_x86_64)
+    // Only the default, unscaled wall clock can use the same fixed-point TSC conversion.
+    // Other CPU clocks, speed synchronization and non-invariant timers keep GetCNTPCT().
+    if (m_uses_wall_clock && Common::g_wall_clock.IsNative() &&
+        Settings::values.cpu_clock.GetValue() == Settings::CpuClock::Normal &&
+        !Settings::values.sync_core_speed.GetValue()) {
+        static const bool inline_cntpct = [] {
+            const char* value = std::getenv("EDEN_NX2_INLINE_CNTPCT");
+            return value == nullptr || value[0] != '0';
+        }();
+        if (inline_cntpct) {
+            config.inline_cntpct_tsc_factor =
+                Common::g_wall_clock.cntpct_rdtsc_factor.load(std::memory_order_relaxed);
+            if (PauseCntpctSpins()) {
+                config.inline_cntpct_last_ptr = &m_cb->m_last_cntpct;
+                config.inline_cntpct_spin_ticks = m_cb->m_spin_ticks;
+            }
+        }
+    }
+#endif
 
     // Code cache size
 #if defined(ARCHITECTURE_arm64) || defined(__sun__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)

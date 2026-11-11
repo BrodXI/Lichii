@@ -7,6 +7,9 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
+#if defined(ARCHITECTURE_x86_64)
+#include "common/x64/rdtsc.h"
+#endif
 #include <oaknut/oaknut.hpp>
 
 #include "dynarmic/tests/A64/testenv.h"
@@ -1256,6 +1259,38 @@ TEST_CASE("A64: CNTPCT_EL0", "[a64]") {
 
     REQUIRE(jit.GetRegister(3) == 7);
 }
+
+#if defined(ARCHITECTURE_x86_64)
+TEST_CASE("A64: inline CNTPCT reads the fenced host clock", "[a64][cntpct]") {
+    A64TestEnv env;
+    A64::UserConfig conf{};
+    conf.callbacks = &env;
+    conf.wall_clock_cntpct = true;
+    conf.inline_cntpct_tsc_factor = UINT64_MAX;
+    u64 last_read = 0;
+    conf.inline_cntpct_last_ptr = &last_read;
+    conf.inline_cntpct_spin_ticks = 300;
+    A64::Jit jit{conf};
+
+    env.code_mem = {
+        0xd53be021,  // MRS X1, CNTPCT_EL0
+        0xd53be022,  // MRS X2, CNTPCT_EL0
+        0x14000000,  // B .
+    };
+    env.ticks_left = 3;
+    jit.SetPC(0);
+
+    const u64 before = Common::X64::FencedRDTSC();
+    CheckedRun([&]() { jit.Run(); });
+    const u64 after = Common::X64::FencedRDTSC();
+
+    // High-half multiplication by UINT64_MAX equals RDTSC - 1, for RDTSC > 0.
+    REQUIRE(jit.GetRegister(1) >= before - 1);
+    REQUIRE(jit.GetRegister(1) <= jit.GetRegister(2));
+    REQUIRE(jit.GetRegister(2) <= after);
+    REQUIRE(last_read == jit.GetRegister(2));
+}
+#endif
 
 TEST_CASE("A64: FNMSUB 1", "[a64]") {
     A64TestEnv env;
