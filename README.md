@@ -21,6 +21,12 @@ Lichii is an experimental, open-source Nintendo Switch and Switch 2 emulator wri
 
 This is an independent fork, not an official release of those upstream projects. Lichii is not affiliated with Nintendo.
 
+## About my fork
+
+This is **my personal Lichii fork**, where I experiment with my own performance, graphics-compatibility, and quality-of-life tweaks. I also selectively bring in useful improvements from other projects, including Fritchii, while keeping the focus on the games and hardware I care about.
+
+I'd estimate **about 10% of my custom tweaks are "vibe-coded" with AI assistance**. I use builds and automated tests to help check changes, but real gameplay testing is still needed to confirm performance and compatibility. I'm building on the work of the original Lichii team and its upstream contributors, not claiming to have created the emulator from scratch.
+
 Visit the [Lichii game compatibility website](https://lichii.zortos.me) to find games and compare community compatibility reports.
 
 ## Downloads and setup
