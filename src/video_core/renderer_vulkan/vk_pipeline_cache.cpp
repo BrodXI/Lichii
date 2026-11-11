@@ -2701,7 +2701,7 @@ namespace {
 // are logged, and the totals every 10 s, to tell how much of the stutter on new content is
 // translation.
 void ReportRuntimePipeline(const char* kind, std::chrono::steady_clock::time_point begin,
-                           const std::string& shaders,
+                           const std::function<std::string()>& describe_shaders,
                            std::chrono::nanoseconds translation_wait = {},
                            std::chrono::nanoseconds stage_translation = {}) {
     static std::mutex mutex;
@@ -2723,7 +2723,7 @@ void ReportRuntimePipeline(const char* kind, std::chrono::steady_clock::time_poi
         (elapsed > std::chrono::milliseconds{2} && logged < 400)) {
         ++logged;
         LOG_INFO(Render_Vulkan, "{} pipeline built on the GPU thread in {:.1f} ms: {}", kind,
-                 ms(elapsed), shaders);
+                 ms(elapsed), describe_shaders());
     }
     if (now - window > std::chrono::seconds{10}) {
         const auto take = [](auto& counter) {
@@ -2794,20 +2794,23 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     const auto begin = std::chrono::steady_clock::now();
     std::optional<ParallelTranslation> parallel;
     SCOPE_EXIT {
-        std::string shaders = fmt::format("pipeline={:016x}", graphics_key.Hash());
-        for (size_t stage = 0; stage < graphics_key.unique_hashes.size(); ++stage) {
-            if (graphics_key.unique_hashes[stage] != 0) {
-                shaders += fmt::format(" s{}:{:016x}", stage, graphics_key.unique_hashes[stage]);
+        ReportRuntimePipeline("Graphics", begin, [&] {
+            std::string shaders = fmt::format("pipeline={:016x}", graphics_key.Hash());
+            for (size_t stage = 0; stage < graphics_key.unique_hashes.size(); ++stage) {
+                if (graphics_key.unique_hashes[stage] != 0) {
+                    shaders += fmt::format(" s{}:{:016x}", stage, graphics_key.unique_hashes[stage]);
+                }
             }
-        }
-        if (!parallel) {
-            ReportRuntimePipeline("Graphics", begin, shaders);
-            return;
-        }
-        const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
-        shaders += fmt::format(" translate_wait_ms={:.1f} stage_translate_ms={:.1f} stages={}",
-                               ms(parallel->wait), ms(parallel->stages), parallel->count);
-        ReportRuntimePipeline("Graphics", begin, shaders, parallel->wait, parallel->stages);
+            if (parallel) {
+                const auto ms = [](auto d) {
+                    return std::chrono::duration<double, std::milli>(d).count();
+                };
+                shaders += fmt::format(" translate_wait_ms={:.1f} stage_translate_ms={:.1f} stages={}",
+                                       ms(parallel->wait), ms(parallel->stages), parallel->count);
+            }
+            return shaders;
+        }, parallel ? parallel->wait : std::chrono::nanoseconds{},
+           parallel ? parallel->stages : std::chrono::nanoseconds{});
     };
     GraphicsEnvironments environments;
     GetGraphicsEnvironments(environments, graphics_key.unique_hashes);
@@ -2897,11 +2900,12 @@ ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(const ComputePipe
         VideoCommon::Nx2Profile::Zone::ComputePipelineMiss};
     const auto begin = std::chrono::steady_clock::now();
     SCOPE_EXIT {
-        ReportRuntimePipeline("Compute", begin,
-                              fmt::format("pipeline={:016x} s6:{:016x} address={:#x}", key.Hash(),
-                                          key.unique_hash,
-                                          kepler_compute->regs.code_loc.Address() +
-                                              kepler_compute->launch_description.program_start));
+        ReportRuntimePipeline("Compute", begin, [&] {
+            return fmt::format("pipeline={:016x} s6:{:016x} address={:#x}", key.Hash(),
+                               key.unique_hash,
+                               kepler_compute->regs.code_loc.Address() +
+                                   kepler_compute->launch_description.program_start);
+        });
     };
     const GPUVAddr program_base{kepler_compute->regs.code_loc.Address()};
     const auto& qmd{kepler_compute->launch_description};
