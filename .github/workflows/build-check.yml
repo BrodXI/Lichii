@@ -248,7 +248,10 @@ jobs:
           CCACHE_COMPILERCHECK: string:${{ hashFiles('tools/windows/install-llvm.ps1') }}
         run: |
           ccache --zero-stats
-          cmake --build build --parallel
+          # Build the production app and both registered test suites. Dynarmic's
+          # optional test_reader tool is not part of CTest and currently fails to
+          # compile on Windows (A64TestEnv::interrupts was removed upstream).
+          cmake --build build --parallel --target yuzu yuzu-cmd tests dynarmic_tests
           ccache --show-stats -v
 
       # Windows may refuse to load the unsigned nxformat.dll (Smart App Control, code integrity
