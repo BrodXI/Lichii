@@ -5,6 +5,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <memory>
+
+#include <QBoxLayout>
+#include <QByteArray>
+#include <QFile>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSaveFile>
+
+#include "common/fs/fs_paths.h"
+#include "common/fs/path_util.h"
 #include "common/logging.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
@@ -31,6 +43,58 @@
 #include "yuzu/configuration/configure_ui.h"
 #include "yuzu/configuration/configure_web.h"
 #include "yuzu/hotkeys.h"
+
+namespace {
+
+QString OcarinaGameConfigPath() {
+    const auto config_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir);
+    return QString::fromStdString(Common::FS::PathToUTF8String(
+        config_dir / "custom" / "0400486024DEC000.ini"));
+}
+
+QStringList OcarinaGameOverrides(const QByteArray& config) {
+    QStringList names;
+    const QByteArray override_suffix = "\\use_global=false";
+    for (const QByteArray& entry : config.split('\n')) {
+        const QByteArray line = entry.trimmed();
+        // The game's temporary memory layout can be saved while a Switch 2 title is running.
+        if (line.endsWith(override_suffix) && !line.contains("memory_layout_mode")) {
+            names.append(QString::fromUtf8(line.left(line.size() - override_suffix.size())));
+        }
+    }
+    return names;
+}
+
+bool ClearOcarinaGameOverrides(const QString& path) {
+    QFile input(path);
+    if (!input.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QByteArray original = input.readAll();
+    input.close();
+
+    QByteArray updated;
+    bool first = true;
+    for (QByteArray line : original.split('\n')) {
+        if (line.trimmed().endsWith("\\use_global=false") &&
+            !line.contains("memory_layout_mode")) {
+            line.replace("\\use_global=false", "\\use_global=true");
+        }
+        if (!first) {
+            updated.append('\n');
+        }
+        first = false;
+        updated.append(line);
+    }
+
+    QSaveFile output(path);
+    if (!output.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    return output.write(updated) == updated.size() && output.commit();
+}
+
+} // namespace
 
 ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry_,
                                  InputCommon::InputSubsystem* input_subsystem,
@@ -112,6 +176,38 @@ ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry_,
 
     adjustSize();
     ui->selectorList->setCurrentRow(0);
+
+    const QString game_config_path = OcarinaGameConfigPath();
+    QFile game_config(game_config_path);
+    if (game_config.open(QIODevice::ReadOnly)) {
+        const QStringList overrides = OcarinaGameOverrides(game_config.readAll());
+        if (!overrides.isEmpty()) {
+            auto* const banner = new QWidget(this);
+            auto* const row = new QHBoxLayout(banner);
+            row->setContentsMargins(8, 2, 8, 2);
+            auto* const label = new QLabel(
+                tr("Ocarina of Time overrides %n global setting(s). Changes here won't affect "
+                   "those settings until you switch back to global values.",
+                   nullptr, static_cast<int>(overrides.size())),
+                banner);
+            label->setWordWrap(true);
+            label->setToolTip(overrides.join(QLatin1Char('\n')));
+            auto* const use_global = new QPushButton(tr("Use Global Settings for OoT"), banner);
+            row->addWidget(label, 1);
+            row->addWidget(use_global);
+            if (auto* const main_layout = qobject_cast<QBoxLayout*>(layout())) {
+                main_layout->insertWidget(0, banner);
+            }
+            connect(use_global, &QPushButton::clicked, this, [this, banner, game_config_path] {
+                if (ClearOcarinaGameOverrides(game_config_path)) {
+                    banner->hide();
+                } else {
+                    QMessageBox::warning(this, tr("Ocarina of Time Settings"),
+                                         tr("Could not update the game's settings file."));
+                }
+            });
+        }
+    }
 
     // Selects the leftmost button on the bottom bar (Cancel as of writing)
     ui->buttonBox->setFocus();
