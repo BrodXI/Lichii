@@ -80,9 +80,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Test packages for the user's Windows Ocarina of Time benchmark.
-          - platform: windows-x86_64
-            runner: windows-2022
+          # This performance-focused fork releases only the Windows PGO build.
+          # Do not allocate a second Windows runner for a standard build.
           - platform: windows-x86_64-pgo
             runner: windows-2022
             pgo: true
