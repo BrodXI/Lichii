@@ -2117,7 +2117,7 @@ void PipelineCache::TickFrame() {
 void PipelineCache::EvictUnusedPipelines() {
     // Building a pipeline again on MoltenVK means a Metal compile mid-game, far dearer than the
     // rebuild cost below, so none are evicted there.
-    if (device.IsMoltenVK() || PreloadAllPipelines() || frame_count <= EvictAfterFrames) {
+    if (device.IsMoltenVK() || frame_count <= EvictAfterFrames) {
         return;
     }
     // An evicted pipeline used again is translated again on the GPU thread (~8.5 ms) and built
