@@ -129,6 +129,7 @@ add_library(video_core STATIC
     nx2_async_readback.h
     nx2_download_trace.h
     pending_maps.h
+    pipeline_cache_policy.h
     present.h
     pte_kind.h
     query_cache/bank_base.h
@@ -345,6 +346,7 @@ add_library(video_core STATIC
     texture_cache/render_targets.h
     texture_cache/samples_helper.h
     texture_cache/stale_pages.h
+    texture_cache/superseded_images.h
     texture_cache/texture_cache.cpp
     texture_cache/texture_cache.h
     texture_cache/texture_cache_base.h
